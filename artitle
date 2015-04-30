@@ -263,7 +263,7 @@ KdTree在本文作用：
 结构的简单性。
 3.1.2 Spider抓取的设计与实现
     服务器端最核心的功能，若没有Spider抓取得到的数据，数据展示及导入新增酒店数据模块的功能都没有作用。
-    对于Spider抓取的设计，需要分析站点的访问顺序和网页结构，然后设计出一套可行的抓取方案。然后在Spider抓取设计的基础上，
+    对于Spider抓取的设计，需要分析站点的浏览顺序和网页Dom结构，然后设计出一套可行的抓取方案。然后在Spider抓取设计的基础上，
 考虑抓取过程中可能遇到的异常并提供解决方案。
 3.1.3 导入新增酒店数据的设计与实现
     服务器端重要性仅次于Spider抓取的核心功能。从Spider抓取的酒店数据中筛选出新增的酒店数据，导入到本地系统。
@@ -312,8 +312,109 @@ Spider抓取数据表，Spider爬虫参数配置表。
     ctrip_hotelreview
     scrapy_manager_sendemailitem
 
-4.2.3 Spider抓取详细设计
-4.2.4 导入新增酒店数据详细设计
+4.2.3 Spider抓取设计
+    根据定义的数据模型，我们需要设计可行的抓取方案浏览抓取Web站点，并根据网页Dom结构解析需要的数据，然后存储到数据对象中。
+    本文核心的Spider类的UML类图如图xx.xx所示：
+    图xx.xx
+
+    根据系统的类和属性，以及系统的功能需求我们可以定义如下接口：
+    class HotelScrapy:
+    [field]
+        name:
+        allowed_domains:
+        start_urls:
+    [def]
+        __init__(self, cityid=None, info_log=None):构造函数，检查传递参数cityid和info_log的正确性以及初始化运行Spider所需要的城市URL入口。
+        closed(self, reason): Spider运行结束后调用，记录Spider运行时间及更改Spider运行状态。
+        parse(self, response): 通过每个城市的URL入口按照城市分类访问酒店列表。
+        entrance_parse(self, response): 从每个城市的酒店列表中抓取分页数量并访问每个分页。
+        hotellist_parse(self, response):从每个分页的酒店列表中抓取hotel_id，将hotel_id嵌入到URL中，访问该URL进入到酒店详细信息页面。
+        hotel_parse(self, response):从酒店详细页面抓取需要的关键信息并存储到item中，然后返回item到Pipeline中
+
+    class HotelPipeline:
+        [field]
+        [def]
+            process_item(self, item, spider): 保存Spider返回的数据对象。
+
+    class ImageScrapy:
+    [field]
+        name:
+        allowed_domains:
+        start_urls:
+    [def]
+        __init__(self, cityid=None, info_log=None):构造函数，检查传递参数cityid和info_log的正确性
+        closed(self, reason): Spider运行结束后调用，记录Spider运行时间及更改Spider运行状态。
+        parse(self, response): 从现已经抓取的酒店数据中查询city_id和hotel_id，将city_id和hotel_id嵌入到URL中，访问该URL进入到酒店图片列表页面。
+        parse_image_url(self, response): 从酒店图片列表页面抓取酒店图片的URL并存储到item中，同时item中还会保存酒店的一些关键字段，然后返回item到Pipeline中。
+
+    class ImagePipeline:
+    [field]
+    [def]
+        get_media_requests(self, item, info): 根据item中酒店图片URL，抓取酒店图片。
+        item_completed(self, results, item, info): 记录所有酒店的图片统计信息和每张图片的信息。
+        file_path(self, request, response=None, info=None): 指定每张图片的存储位置，每张图片的存储路径为full/city_name/hotel_id/title/image_guid.jpg
+
+    class ReviewScrapy:
+    [filed]
+        name:
+        allowed_domains:
+        start_urls:
+    [def]
+        __init__(self, cityid=None, info_log=None):构造函数，检查传递参数cityid和info_log的正确性
+        closed(self, reason): Spider运行结束后调用，记录Spider运行时间及更改Spider运行状态。
+        parse(self, response): 从现已经抓取的酒店数据中查询酒店的href，将该href转化成酒店点评页面的URL，然后访问该URL
+        parse_review_list(self, response): 从每个酒店的点评列表中抓取分页数量并访问每个分页。
+        parse_review(self, response): 解析单个酒店的单页点评并存储到item中，然后返回item到Pipeline中
+
+    class ReviewPipeline:
+    [field]
+    [def]
+        process_item(self, item, spider): 记录所有酒店的点评统计信息和每条点评的信息。
+
+    class Email:
+    [field]
+        name:
+        allowed_domains:
+        start_urls:
+    [def]
+        __init__(self, result=None, log_file=None, scrapy_type=None): 构造函数，检查传递参数result，log_file，scrapy_type的正确性以及从数据库中查询邮件的收件人。
+        parse(self, response):pass
+        closed(self, reason): Spider运行结束后调用，根据scrapy_type和log_file参数寻找附件，并调用发送邮件的方法将附件内容发送到收件人。
+        send_email(self, to=[], cc=[], subject="爬虫运行异常", body="", attachs=[]): 发送邮件。
+
+4.2.4 导入新增酒店数据设计
+    在Spider抓取运行成功且抓取数据成功存储到数据库之后，我们可以根据本地的酒店数据和Spider抓取的酒店数据做数据分析，导入新增
+酒店数据到本地数据库。
+    导入新增酒店数据模块的核心为酒店数据去重算法，针对酒店数据去重算法，我们设计出UML类图如图xx.xx
+    图xx.xx
+    根据酒店去重算法的核心思想，我们可以定义如下接口：
+    class KDTree:
+    [def]
+        build_kdtree(point_list, depth): 创建KDTree
+        query(self, query_point, t=1): 查询目标节点附近的t个最临近节点。
+
+    class Shingling:
+    [def]
+        shing_str(pre_str, cmp_str): shingling算法比较字符串pre_str和cmp_str的相似度。
+        drop_symbol(str): 去除字符串str中的特殊符号。
+
+    class LongestCommonSubsequence:
+    [def]
+         __init__(self, str_x, str_y): 构造函数，将字符串转码成UTF-8。
+        lcs_length_init(self): 在不需要获得LCS而只需要获得len(LCS)的时候的初始化工作。
+        get_cls_length(self): 返回len(LCS)
+        lcs_init(self): 在需要获得LCS的时候的初始化工作。
+        get_cls(self): 返回LCS
+        longest_common_subsequence_percentage(str_x, str_y): 找出字符串str_x和字符串str_y的len(LCS)，用len(LCS)/max_len(str_x, str_y)获得字符串str_x和str_y的相似度。
+
+    class LocalImport:
+    [def]
+        __init__(self): 构造函数，读取本地酒店数据，建立KDTree
+        transfer_tree_node(self, hotel_model): 将从数据库查询得到的酒店数据对象转化为KDTree节点对象
+        shingling_in_list(self, target_node, nearest_node_list): 将目标节点酒店名称与所有临近节点酒店名称做shingling比较
+        lcs_in_list(self, target_node, nearest_node_list): 将目标节点酒店名称与所有临近节点酒店名称做lcs比较
+        import_data(self, hotel_list): 对hotel_list中的酒店对象，用酒店去重算法筛选出新增的酒店对象
+
 
 5 系统实现
 5.1 系统环境搭建
